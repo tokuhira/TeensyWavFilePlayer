@@ -55,6 +55,40 @@ AudioControlSGTL5000     sgtl5000_1;
 //#define SDCARD_MOSI_PIN  11
 //#define SDCARD_SCK_PIN   13
 
+// Knob to controll the volume
+#define VOLUME_MIN       0.0
+#define VOLUME_MAX       1.0
+#define VOLUME_INITIAL   VOLUME_MIN
+#define VOLUME_STEPS     50    // for discretization
+#define VOLUME_Y2S(y)    round((y - VOLUME_MIN) / (VOLUME_MAX - VOLUME_MIN) * (float)VOLUME_STEPS)
+#define VOLUME_S2Y(s)    ((s / (float)VOLUME_STEPS) * (VOLUME_MAX - VOLUME_MIN) + VOLUME_MIN)
+#define VOLUME_ANA_PIN   A1
+#define VOLUME_ANA_MAX   1023  // from 0
+#define VOLUME_INTERVAL  50000 // 0.05 seconds
+#define VOLUME_IIR_A1    0.9
+IntervalTimer volumeTimer;
+
+void volumeUpdate() {
+  // IIR filter
+  static float y[2] = {VOLUME_INITIAL};
+  float volumeAnalog = analogRead(VOLUME_ANA_PIN) / (float)VOLUME_ANA_MAX;
+  y[1] = VOLUME_IIR_A1 * y[0] + (1.0 - VOLUME_IIR_A1) * volumeAnalog;
+
+  // discretization
+  static long volumeStepOld = VOLUME_Y2S(VOLUME_INITIAL);
+  long volumeStepNew = VOLUME_Y2S(y[1]);
+  if (volumeStepNew != volumeStepOld) {
+    float volumeAnalogDiscrete = VOLUME_S2Y(volumeStepNew);
+    sgtl5000_1.volume(volumeAnalogDiscrete);
+    Serial.print("Volume update: ");
+    Serial.println(volumeAnalogDiscrete);
+    volumeStepOld = volumeStepNew;
+  }
+
+  // IIR shift
+  y[0] = y[1];
+}
+
 void setup() {
   Serial.begin(9600);
 
@@ -66,7 +100,8 @@ void setup() {
   // This may wait forever if the SDA & SCL pins lack
   // pullup resistors
   sgtl5000_1.enable();
-  sgtl5000_1.volume(0.5);
+  sgtl5000_1.volume(VOLUME_INITIAL);
+  volumeTimer.begin(volumeUpdate, VOLUME_INTERVAL);
 
   SPI.setMOSI(SDCARD_MOSI_PIN);
   SPI.setSCK(SDCARD_SCK_PIN);
